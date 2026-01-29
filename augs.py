@@ -15,18 +15,21 @@ class BatchResample(RandTransform):
     """
     Randomly resample images and masks to different scales using a plateau distribution.
 
-    This transform applies random scaling to entire batches, where the scale factor is sampled
-    from a three-zone plateau distribution that allows fine control over scale bias:
+    This transform applies random scaling to entire batches, where the scale
+    factor is sampled from a three-zone plateau distribution that allows fine
+    control over scale bias:
     - Linear fade-in from min_scale to plateau_min
     - Uniform sampling from plateau_min to plateau_max
     - Linear fade-out from plateau_max to max_scale
 
-    The plateau distribution allows you to bias sampling towards specific scale ranges with
-    linear probability transitions at the boundaries. When plateau bounds equal the min/max
-    scales, the distribution becomes uniform (default behaviour).
+    The plateau distribution allows you to bias sampling towards specific scale
+    ranges with linear probability transitions at the boundaries. When plateau
+    bounds equal the min/max scales, the distribution becomes uniform (default
+    behaviour).
 
-    Images are resampled using random interpolation modes (bilinear/nearest) with randomly
-    applied antialiasing, whilst masks use nearest neighbour to preserve discrete values.
+    Images are resampled using random interpolation modes (bilinear/nearest)
+    with randomly applied antialiasing, whilst masks use nearest neighbour to
+    preserve discrete values.
 
     Probability Density
 
@@ -41,7 +44,9 @@ class BatchResample(RandTransform):
 
     """
 
-    order = 1  # the first thing we do as it reduces the batch size making all other transforms more efficient
+    # The first thing we do as it reduces the batch size making all other
+    # transforms more efficient
+    order = 1
     split_idx = 0  # only apply to the training set
 
     def __init__(
@@ -69,7 +74,7 @@ class BatchResample(RandTransform):
         self.plateau_max = plateau_max
 
     def _select_scale_factor(self) -> float:
-        """Sample from plateau distribution: linear fade-in, uniform plateau, linear fade-out"""
+        """Sample from plateau distribution: fade-in, plateau, fade-out."""
 
         # Calculate ranges and areas
         lower_range = self.plateau_min - self.min_scale
@@ -112,11 +117,13 @@ class BatchResample(RandTransform):
             interpolation_mode in self._antialias_modes and random.choice([True, False])
         )
 
-        return F.interpolate(
-            image,
-            size=(self.target_size, self.target_size),
-            mode=interpolation_mode,
-            antialias=use_antialiasing,
+        return TensorImage(
+            F.interpolate(
+                image,
+                size=(self.target_size, self.target_size),
+                mode=interpolation_mode,
+                antialias=use_antialiasing,
+            )
         )
 
     def _resample_mask(self, mask: TensorMask) -> TensorMask:
@@ -125,7 +132,7 @@ class BatchResample(RandTransform):
         resampled = F.interpolate(
             mask.unsqueeze(0), size=(self.target_size, self.target_size), mode="nearest"
         )
-        return resampled.squeeze(0)
+        return TensorMask(resampled.squeeze(0))
 
     def encodes(self, x: TensorImage | TensorMask) -> TensorImage | TensorMask:
         """Apply appropriate resampling based on input type"""
@@ -141,14 +148,15 @@ class RandomRectangle(RandTransform):
     """
     Randomly erases rectangular regions in images by filling them with random values.
 
-    This transform implements a variant of Random Erasing augmentation that helps improve
-    model robustness by forcing it to rely on multiple features rather than specific regions.
-    It randomly selects rectangular areas in the image and fills them with random pixel
-    values, simulating occlusion or missing data.
+    This transform implements a variant of Random Erasing augmentation that
+    helps improve model robustness by forcing it to rely on multiple features
+    rather than specific regions. It randomly selects rectangular areas in the
+    image and fills them with random pixel values, simulating occlusion or
+    missing data.
 
-    The transform can create multiple rectangles per image, with configurable size ranges,
-    aspect ratios, and fill values. Only a random subset of colour channels are affected
-    per rectangle.d
+    The transform can create multiple rectangles per image, with configurable
+    size ranges, aspect ratios, and fill values. Only a random subset of colour
+    channels are affected per rectangle.
     Original Image:          After RandRect Effect:
     ┌──────────────┐         ┌──────────────┐
     │██████████████│         │██████████████│
@@ -160,7 +168,8 @@ class RandomRectangle(RandTransform):
     └──────────────┘         └──────────────┘
     """
 
-    order = 2  # needs to happen before normalisation so we know the max_fill_value is reasonable
+    # Needs to happen before normalisation so we know max_fill_value is reasonable
+    order = 2
     split_idx = 0  # only apply to the training set
 
     def __init__(
@@ -169,7 +178,8 @@ class RandomRectangle(RandTransform):
         sl: float = 0.0,  # Minimum proportion of erased area
         sh: float = 0.3,  # Maximum proportion of erased area
         min_aspect: float = 0.3,  # Minimum aspect ratio of erased area
-        max_count: int = 1,  # Maximum number of erasing blocks per image, area per box is scaled by count
+        # Maximum number of erasing blocks per image, area per box is scaled
+        max_count: int = 1,
         max_fill_value: int = 10000,  # Maximum value to fill in the erased area
     ):
         self.p = p
@@ -224,8 +234,9 @@ class DynamicZScoreNormalize(DisplayedTransform):
     """
     Dynamically normalize images using Z-score normalization on non-no-data pixels only.
 
-    This transform applies per-channel Z-score normalization (mean=0, std=1) but only
-    considers pixels that are not equal to the no_data_value when calculating statistics.
+    This transform applies per-channel Z-score normalization (mean=0, std=1)
+    but only considers pixels that are not equal to the no_data_value when
+    calculating statistics.
 
     The normalization is computed independently for each channel and each image in the
     batch, making it adaptive to the content and dynamic range of individual images.
@@ -261,17 +272,20 @@ class DynamicZScoreNormalize(DisplayedTransform):
 
 class RandomClipLargeImages(RandTransform):
     """
-    Randomly crop batches of images and masks to a smaller size when they exceed the target dimensions.
+    Randomly crop batches of images and masks to a smaller size.
 
-    This transform applies random cropping to entire batches where images are larger than the desired
-    output size. It first selects a random crop size between min_size and max_size, then chooses a
-    random location within the image to extract the crop from. If the input images are smaller than
-    the target crop size, no cropping is performed and the original batch is returned unchanged.
+    This transform applies random cropping to entire batches where images are
+    larger than the desired output size. It first selects a random crop size
+    between min_size and max_size, then chooses a random location within the
+    image to extract the crop from. If the input images are smaller than the
+    target crop size, no cropping is performed and the original batch is
+    returned unchanged.
 
-    The same crop size and coordinates are applied to all items in the batch to maintain spatial
-    correspondence between images and masks. This transform is particularly useful after resampling
-    operations that may produce varying image sizes, and helps speed up training by reducing the
-    size of larger images.
+    The same crop size and coordinates are applied to all items in the batch
+    to maintain spatial correspondence between images and masks. This transform
+    is particularly useful after resampling operations that may produce varying
+    image sizes, and helps speed up training by reducing the size of larger
+    images.
 
     Cropping behaviour:
 
@@ -286,7 +300,8 @@ class RandomClipLargeImages(RandTransform):
     """
 
     split_idx = 0  # only apply to the training set
-    order = 4  # should happen after normalisation and before the other transforms for performance reasons
+    # Should happen after normalisation and before other transforms for perf
+    order = 4
 
     def __init__(self, p: float = 1.0, min_size: int = 256, max_size: int = 256):
         super().__init__(p=p)
@@ -334,12 +349,12 @@ class BatchFlip(RandTransform):
     """
     Randomly flip images and masks horizontally and/or vertically.
 
-    This transform applies random flipping augmentation to entire batches, where all items
-    receive the same flip operations to maintain spatial correspondence between images and
-    masks.
+    This transform applies random flipping augmentation to entire batches,
+    where all items receive the same flip operations to maintain spatial
+    correspondence between images and masks.
 
-    The transform can apply horizontal flips, vertical flips, both, or neither, depending
-    on the configuration and random selection.
+    The transform can apply horizontal flips, vertical flips, both, or neither,
+    depending on the configuration and random selection.
 
     Original Image:     Horizontal Flipped: Vertical Flipped:   Both Flipped:
     ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
@@ -392,9 +407,10 @@ class BatchRot90(RandTransform):
     """
     Randomly rotate entire batches of images and masks by 0, 90, 180, or 270 degrees.
 
-    This transform applies random 90-degree rotations to batches, where all items in the batch
-    receive the same rotation to maintain spatial correspondence between images and masks.
-    The rotation is applied around the centre of the image using PyTorch's rot90 function.
+    This transform applies random 90-degree rotations to batches, where all
+    items in the batch receive the same rotation to maintain spatial
+    correspondence between images and masks. The rotation is applied around
+    the centre of the image using PyTorch's rot90 function.
 
     0° (Original):      90° Rotated:        180° Rotated:       270° Rotated:
     ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
@@ -478,12 +494,13 @@ class SceneEdge(RandTransform):
 
 class ClipHighAndLow(RandTransform):
     """
-    Simulates sensor limitations by randomly clipping pixel values at high and low extremes.
+    Simulates sensor limitations by randomly clipping pixel values.
 
-    This transform mimics real-world sensor behaviour where very bright areas cause saturation
-    (clipping high values) and very dark areas fall below the noise floor or sensor sensitivity
-    threshold (clipping low values). Both effects are applied independently and randomly
-    to each band of each image in the batch.
+    This transform mimics real-world sensor behaviour where very bright areas
+    cause saturation (clipping high values) and very dark areas fall below the
+    noise floor or sensor sensitivity threshold (clipping low values). Both
+    effects are applied independently and randomly to each band of each image
+    in the batch.
 
     The clipping is applied as a percentage of each band's dynamic range, making it
     adaptive to the actual data distribution.
@@ -600,11 +617,16 @@ class QuantizeBatchSize(DisplayedTransform):
     Input size 100 -> raises ValueError (smaller than min_size)
 
     Original Image (300x300):    After Quantization (256x256):
-    ┌─────────────────────┐      ┌─────────────────┐
-    │  ┌───────────────┐  │      │                 │
-    │  │  Kept Region  │  │  ->  │  (center crop)  │
-    │  └───────────────┘  │      │                 │
-    └─────────────────────┘      └─────────────────┘
+    ┌───────────────────┐
+    │  ┌─────────────┐  │      ┌─────────────┐
+    │  │ Kept Region │  │  ->  │(center crop)│
+    │  │             │  │      │             │
+    │  │             │  │      │             │
+    │  │             │  │      │             │
+    │  │             │  │      │             │
+    │  └─────────────┘  │      └─────────────┘
+    └───────────────────┘
+
     """
 
     order = 99  # Run last to quantize final output sizes
@@ -631,9 +653,10 @@ class QuantizeBatchSize(DisplayedTransform):
         """Find the largest bucket size that fits within current_size."""
         if current_size < self.min_size:
             raise ValueError(
-                f"Input size {current_size} is smaller than min_size {self.min_size}. "
-                f"Adjust your pipeline (e.g., increase BatchResample min_scale) to ensure "
-                f"images are at least {self.min_size}px."
+                f"Input size {current_size} is smaller than min_size "
+                f"{self.min_size}. Adjust your pipeline (e.g., increase "
+                f"BatchResample min_scale) to ensure images are at least "
+                f"{self.min_size}px."
             )
 
         # Find largest bucket that fits
@@ -674,11 +697,12 @@ class QuantizeBatchSize(DisplayedTransform):
 
 class BatchTear(RandTransform):
     """
-    Creates a 'tear' effect in images by applying local displacement along a random line.
+    Creates a 'tear' effect in images by applying local displacement.
 
-    This transform simulates visual distortions that can occur in imagery due to sensor
-    movement or processing artifacts. It creates a realistic tearing effect by displacing
-    pixels along a randomly oriented line through the image.
+    This transform simulates visual distortions that can occur in imagery due
+    to sensor movement or processing artifacts. It creates a realistic tearing
+    effect by displacing pixels along a randomly oriented line through the
+    image.
 
     The transform works by generating a displacement map based on distance from a random
     line, then shifting pixels in the direction perpendicular to that line. The result
@@ -773,8 +797,8 @@ class BatchTear(RandTransform):
 
         if mask_tensor:
             displaced_image = displaced_image.squeeze(1)
-
-        return displaced_image
+            return TensorMask(displaced_image)
+        return TensorImage(displaced_image)
 
     def encodes(self, x: TensorImage | TensorMask):
         if not self.do:
