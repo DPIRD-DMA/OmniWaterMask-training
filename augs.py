@@ -581,6 +581,97 @@ class RandomSharpenBlur(RandTransform):
         return x_blur_sharpen
 
 
+class QuantizeBatchSize(DisplayedTransform):
+    """
+    Quantizes image and mask dimensions to a fixed set of bucket sizes.
+
+    This transform center-crops images and masks to the largest bucket size that fits.
+    This reduces the variety of tensor sizes that PyTorch needs to handle, improving
+    compilation efficiency and memory usage.
+
+    The bucket sizes are evenly distributed between min_size and max_size.
+    Raises ValueError if input is smaller than min_size.
+
+    Example with 5 buckets between 256 and 500:
+    Bucket sizes: [256, 317, 378, 439, 500]
+
+    Input size 300 -> crops to 256 (largest bucket <= 300)
+    Input size 450 -> crops to 439 (largest bucket <= 450)
+    Input size 100 -> raises ValueError (smaller than min_size)
+
+    Original Image (300x300):    After Quantization (256x256):
+    ┌─────────────────────┐      ┌─────────────────┐
+    │  ┌───────────────┐  │      │                 │
+    │  │  Kept Region  │  │  ->  │  (center crop)  │
+    │  └───────────────┘  │      │                 │
+    └─────────────────────┘      └─────────────────┘
+    """
+
+    order = 99  # Run last to quantize final output sizes
+
+    def __init__(
+        self,
+        min_size: int = 128,
+        max_size: int = 384,
+        num_buckets: int = 5,
+    ):
+        super().__init__(split_idx=None)  # Apply to both train and validation
+        self.min_size = min_size
+        self.max_size = max_size
+        self.num_buckets = num_buckets
+
+        # Pre-compute bucket sizes
+        if num_buckets == 1:
+            self.bucket_sizes = [min_size]
+        else:
+            step = (max_size - min_size) / (num_buckets - 1)
+            self.bucket_sizes = [round(min_size + i * step) for i in range(num_buckets)]
+
+    def _get_bucket_size(self, current_size: int) -> int:
+        """Find the largest bucket size that fits within current_size."""
+        if current_size < self.min_size:
+            raise ValueError(
+                f"Input size {current_size} is smaller than min_size {self.min_size}. "
+                f"Adjust your pipeline (e.g., increase BatchResample min_scale) to ensure "
+                f"images are at least {self.min_size}px."
+            )
+
+        # Find largest bucket that fits
+        for bucket in reversed(self.bucket_sizes):
+            if bucket <= current_size:
+                return bucket
+
+        raise ValueError(f"No bucket found for size {current_size}")
+
+    def encodes(self, x: TensorImage | TensorMask) -> TensorImage | TensorMask:
+        current_size = x.shape[-1]
+        target_size = self._get_bucket_size(current_size)
+
+        if target_size == current_size:
+            return x
+
+        # Center crop to target size
+        offset = (current_size - target_size) // 2
+
+        if isinstance(x, TensorImage):
+            clipped = x[
+                :,
+                :,
+                offset : offset + target_size,
+                offset : offset + target_size,
+            ]
+            return TensorImage(clipped)
+        elif isinstance(x, TensorMask):
+            clipped = x[
+                :,
+                offset : offset + target_size,
+                offset : offset + target_size,
+            ]
+            return TensorMask(clipped)
+        else:
+            return x
+
+
 class BatchTear(RandTransform):
     """
     Creates a 'tear' effect in images by applying local displacement along a random line.
