@@ -33,10 +33,10 @@ Usage:
         return (pixel_cel * pixel_weight).mean()
 """
 
+import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
-import cv2
 
 
 def distance_transform(
