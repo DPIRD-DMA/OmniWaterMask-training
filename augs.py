@@ -168,7 +168,7 @@ class RandomRectangle(RandTransform):
     └──────────────┘         └──────────────┘
     """
 
-    # Needs to happen before normalisation so we know max_fill_value is reasonable
+    # Needs to happen before normalisation so the image max values are reasonable
     order = 2
     split_idx = 0  # only apply to the training set
 
@@ -180,14 +180,14 @@ class RandomRectangle(RandTransform):
         min_aspect: float = 0.3,  # Minimum aspect ratio of erased area
         # Maximum number of erasing blocks per image, area per box is scaled
         max_count: int = 1,
-        max_fill_value: int = 10000,  # Maximum value to fill in the erased area
+        max_fill_ratio: float = 1.5,  # Fill value up to this ratio of image max
     ):
         self.p = p
         self.sl = sl
         self.sh = sh
         self.min_aspect = min_aspect
         self.max_count = max_count
-        self.max_fill_value = max_fill_value
+        self.max_fill_ratio = max_fill_ratio
         super().__init__(p=p)
         self.log_ratio = (math.log(min_aspect), math.log(1 / min_aspect))
 
@@ -227,7 +227,18 @@ class RandomRectangle(RandTransform):
         _, img_h, img_w = x.shape[-3:]
         area = img_h * img_w / count
         areas = [self._bounds(area, img_h, img_w) for _ in range(count)]
-        return self.cutout_values(x, areas, random.randint(0, self.max_fill_value))
+        chan = x.shape[-3]
+
+        for i in range(x.shape[0]):
+            img_max = x[i].max().item()
+            fill_value = random.uniform(0, img_max * self.max_fill_ratio)
+            value_chan_count = random.randint(1, chan)
+            value_chans = random.sample(range(chan), value_chan_count)
+            for rl, rh, cl, ch in areas:
+                for c in value_chans:
+                    x[i, c, rl:rh, cl:ch] = fill_value
+
+        return x
 
 
 class DynamicZScoreNormalize(DisplayedTransform):
@@ -587,10 +598,13 @@ class RandomSharpenBlur(RandTransform):
                 sharpness_factor = random.uniform(self.min_factor, self.max_factor)
                 image_min = image.min()
                 image_max = image.max()
-                # Normalize the image to [0, 1] range for sharpening
+                # Normalize to [0, 1] range for sharpening
                 image = (image - image_min) / (image_max - image_min + 1e-8)
-                image = adjust_sharpness(image, sharpness_factor)
-                # Rescale back to original range
+                # Treat channels as batch: (C,H,W) -> (C,1,H,W) -> (C,H,W)
+                image = adjust_sharpness(image.unsqueeze(1), sharpness_factor).squeeze(
+                    1
+                )
+                #     # Rescale back to original range
                 image = image * (image_max - image_min) + image_min
 
             x_blur_sharpen[idx] = image
