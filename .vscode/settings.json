@@ -1,5 +1,7 @@
 {
     "cSpell.words": [
-        "normalisation"
+        "normalisation",
+        "unet",
+        "JaccardCoeff"
     ]
 }
