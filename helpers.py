@@ -17,6 +17,8 @@ def plot_batch(batch, image_num=0, labels: Optional[list[str]] = None):
     # Print the shape of the image tensor and the mask
     print(f"Image tensor shape: {x.shape}")
     print(f"Label shape: {y.shape}")
+    # force x to float
+    x = x.float()
 
     _, channels, _, _ = x.shape
 
@@ -89,7 +91,7 @@ def plot_batch(batch, image_num=0, labels: Optional[list[str]] = None):
 
 
 def show_histo(batch, image_num=0, labels: Optional[list[str]] = None):
-    tensor = batch[0][image_num].cpu()
+    tensor = batch[0][image_num].cpu().float()
     num_channels = tensor.shape[0]
 
     # Calculate the number of rows and columns for subplots

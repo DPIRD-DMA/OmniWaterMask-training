@@ -47,4 +47,3 @@ include = ["omniwatermask-training*"]
 
 [tool.ruff.lint]
 select = ["E", "F", "B"]
-

@@ -9,6 +9,9 @@ from fastai.torch_core import TensorImage, TensorMask
 from fastai.vision.augment import DisplayedTransform, RandTransform
 from torch import Tensor
 from torchvision.transforms.functional import adjust_sharpness
+import rasterio as rio
+from rasterio.windows import Window
+from rasterio.enums import Resampling
 
 
 class BatchResample(RandTransform):
@@ -129,10 +132,14 @@ class BatchResample(RandTransform):
     def _resample_mask(self, mask: TensorMask) -> TensorMask:
         """Resample mask using nearest neighbour to preserve discrete values"""
         # Add batch dimension, interpolate, then remove batch dimension
+        original_dtype = mask.dtype
         resampled = F.interpolate(
-            mask.unsqueeze(0), size=(self.target_size, self.target_size), mode="nearest"
+            mask.unsqueeze(0).float(),
+            size=(self.target_size, self.target_size),
+            mode="nearest",
         )
-        return TensorMask(resampled.squeeze(0))
+
+        return TensorMask(resampled.squeeze(0).to(dtype=original_dtype))
 
     def encodes(self, x: TensorImage | TensorMask) -> TensorImage | TensorMask:
         """Apply appropriate resampling based on input type"""
@@ -481,6 +488,7 @@ class SceneEdge(RandTransform):
         self.p = p
 
     def add_zero_sliver(self, image: Tensor) -> Tensor:
+        input_dtype = image.dtype
         C, H, W = image.shape
         x0, y0 = np.random.uniform(0, W), np.random.uniform(0, H)
         angle = np.random.uniform(0, 2 * np.pi)
@@ -492,7 +500,7 @@ class SceneEdge(RandTransform):
         mask = mask.unsqueeze(0).repeat(C, 1, 1)
         image_out = image.clone()
         image_out[mask] = 0
-        return image_out
+        return image_out.to(dtype=input_dtype)
 
     def encodes(self, batch: TensorImage) -> TensorImage:
         "Applies the transform to each image in the batch with probability p"
@@ -644,6 +652,7 @@ class QuantizeBatchSize(DisplayedTransform):
     """
 
     order = 99  # Run last to quantize final output sizes
+    split_idx = 0
 
     def __init__(
         self,
@@ -807,7 +816,7 @@ class BatchTear(RandTransform):
         original_dtype = displaced_image.dtype
         displaced_image = displaced_image.float()
         displaced_image = torch.nn.functional.interpolate(displaced_image, size=(H, W))
-        displaced_image = displaced_image.to(original_dtype)
+        displaced_image = displaced_image.to(dtype=original_dtype)
 
         if mask_tensor:
             displaced_image = displaced_image.squeeze(1)
