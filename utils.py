@@ -22,6 +22,7 @@ def distance_transform_torch(
     input_label: torch.Tensor | np.ndarray,
     clip_distance: float = 3.0,
     classes: list[int] | None = None,
+    ignore_index: int | None = 99,
 ) -> torch.Tensor:
     """
     Pure PyTorch distance transform using iterative erosion.
@@ -41,6 +42,8 @@ def distance_transform_torch(
         input_label: Input label tensor/array of shape (H, W) or (B, H, W)
         clip_distance: Maximum distance to clip to (default 3.0)
         classes: List of class integers to process (default [0, 1])
+        ignore_index: Label value to ignore (default 99). Pixels within
+            clip_distance of ignore regions get weight 1 (no upweighting).
 
     Returns:
         Distance transform weights tensor on same device as input
@@ -120,6 +123,20 @@ def distance_transform_torch(
 
     # Apply final transformation: |output - clip_distance - 1|
     output = torch.abs(output - clip_distance - 1)
+
+    # Set pixels near ignore regions to weight 1 (no upweighting)
+    if ignore_index is not None:
+        ignore_mask = (label == ignore_index).float().unsqueeze(1)  # (B, 1, H, W)
+
+        # Dilate ignore mask by clip_distance using iterative max pooling
+        dilated_ignore = ignore_mask
+        for _ in range(max_dist):
+            dilated_ignore = F.max_pool2d(
+                dilated_ignore, kernel_size=3, stride=1, padding=1
+            )
+
+        near_ignore = dilated_ignore.squeeze(1) > 0  # (B, H, W)
+        output[near_ignore] = 1.0
 
     if single_image:
         output = output.squeeze(0)
