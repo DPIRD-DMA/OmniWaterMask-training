@@ -208,3 +208,4 @@ __marimo__/
 models/*.pth
 uv.lock
 models/*.safetensors
+Train.py

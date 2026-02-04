@@ -10,7 +10,7 @@ from fastai.torch_core import default_device
 from matplotlib import pyplot as plt
 
 
-def plot_batch(batch, image_num=0, labels: Optional[list[str]] = None):
+def plot_batch(batch, image_num=0, labels: Optional[list[str]] = None, n: int = 1):
     # Load one batch of data
     x, y = batch  # x: images, y: masks
 
@@ -26,42 +26,55 @@ def plot_batch(batch, image_num=0, labels: Optional[list[str]] = None):
         print(f"Image number {image_num} is out of range for this batch.")
         return
 
+    # Clamp the number of images to what exists in the batch
+    n = max(1, n)
+    n = min(n, x.shape[0] - image_num)
+
     # Ensure there are at least 3 channels to form an RGB image
     if channels < 3:
         print("There are less than 3 channels available. Cannot form an RGB image.")
         return
 
-    # Extract the first three channels to form an RGB image
-    rgb_img = x[image_num, :3].cpu().numpy()
-    rgb_img = np.transpose(
-        rgb_img, (1, 2, 0)
-    )  # Rearrange dimensions to height x width x channels
-    rgb_img = (rgb_img - rgb_img.min()) / (
-        rgb_img.max() - rgb_img.min()
-    )  # Normalize to [0, 1] for displaying
+    num_cols = channels + 3  # RGB + per-channel + label + overlay
+    fig, axs = plt.subplots(
+        n, num_cols, figsize=(30, 4.5 * n), gridspec_kw={"hspace": 0.15}
+    )
+    # Ensure axs is always 2D for consistent indexing
+    if n == 1:
+        axs = np.expand_dims(axs, axis=0)
 
-    fig, axs = plt.subplots(1, channels + 2, figsize=(25, 10))
-    if not isinstance(axs, np.ndarray):
-        axs = np.array([axs])
+    for row in range(n):
+        img_idx = image_num + row
 
-    # Display the RGB image
-    axs[0].imshow(rgb_img)
-    if labels:
-        axs[0].set_title(labels[0])
-    else:
-        axs[0].set_title("RGB Image")
-    axs[0].axis("off")
+        # Extract the first three channels to form an RGB image
+        rgb_img = x[img_idx, :3].cpu().numpy()
+        rgb_img = np.transpose(
+            rgb_img, (1, 2, 0)
+        )  # Rearrange dimensions to height x width x channels
+        rgb_img = (rgb_img - rgb_img.min()) / (
+            rgb_img.max() - rgb_img.min()
+        )  # Normalize to [0, 1] for displaying
 
-    # Plot each channel for the specified image number and print mean and std
-    for ch in range(channels):
-        img_channel = x[image_num, ch].cpu().numpy()
+        # Display the RGB image
+        axs[row, 0].imshow(rgb_img)
+        if row == 0:
+            if labels:
+                axs[row, 0].set_title(labels[0])
+            else:
+                axs[row, 0].set_title(f"RGB Image #{img_idx}")
+        axs[row, 0].axis("off")
 
-        axs[ch + 1].imshow(img_channel, cmap="gray")
-        if labels:
-            axs[ch + 1].set_title(labels[ch + 1])
-        else:
-            axs[ch + 1].set_title(f"Channel {ch + 1}")
-        axs[ch + 1].axis("off")
+        # Plot each channel for the specified image number
+        for ch in range(channels):
+            img_channel = x[img_idx, ch].cpu().numpy()
+
+            axs[row, ch + 1].imshow(img_channel, cmap="gray")
+            if row == 0:
+                if labels:
+                    axs[row, ch + 1].set_title(labels[ch + 1])
+                else:
+                    axs[row, ch + 1].set_title(f"Channel {ch + 1}")
+            axs[row, ch + 1].axis("off")
     colors = [
         "#8B4513",
         "white",
@@ -74,18 +87,43 @@ def plot_batch(batch, image_num=0, labels: Optional[list[str]] = None):
         "brown_white_grey_black", colors, N=n_bins
     )
     # remap 99 values to 5 for visualization
-    y[y == 99] = 5
+    # Plot the label mask for each requested image number
+    for row in range(n):
+        img_idx = image_num + row
+        mask = y[img_idx].clone()  # avoid mutating the batch tensor
+        mask[mask == 99] = 5
+        mask_np = mask.cpu().numpy()
 
-    # Plot the label mask for the specified image number
-    axs[-1].imshow(
-        y[image_num].cpu().numpy(),
-        cmap=cmap,
-        interpolation="nearest",
-        vmin=0,
-        vmax=4,
-    )
-    axs[-1].set_title("Label")
-    axs[-1].axis("off")
+        # Label-only view
+        axs[row, -2].imshow(
+            mask_np,
+            cmap=cmap,
+            interpolation="nearest",
+            vmin=0,
+            vmax=4,
+        )
+        if row == 0:
+            axs[row, -2].set_title("Label")
+        axs[row, -2].axis("off")
+
+        # Overlay mask on RGB
+        rgb_overlay = x[img_idx, :3].cpu().numpy()
+        rgb_overlay = np.transpose(rgb_overlay, (1, 2, 0))
+        rgb_overlay = (rgb_overlay - rgb_overlay.min()) / (
+            rgb_overlay.max() - rgb_overlay.min()
+        )
+        axs[row, -1].imshow(rgb_overlay, cmap=None)
+        axs[row, -1].imshow(
+            mask_np,
+            cmap=cmap,
+            interpolation="nearest",
+            vmin=0,
+            vmax=4,
+            alpha=0.4,
+        )
+        if row == 0:
+            axs[row, -1].set_title("Overlay")
+        axs[row, -1].axis("off")
 
     plt.show()
 
